@@ -82,9 +82,19 @@ async function runGeminiCompletion(
 }
 
 const CRAFT_ETSY_SEARCH: Record<string, string> = {
+  // Legacy labels (existing artisan rows)
   "Kani Weaving": "Handmade Kani Shawl",
+  // Current onboarding labels
+  "Kani Shawl Weaving": "Handmade Kani Shawl",
   "Wood Carving": "Handmade wood carving wall art",
   "Papier Mâché": "Handmade papier mache",
+  "Batik Textiles": "Handmade batik fabric",
+  "Ikat Weaving": "Handmade ikat textile",
+  "Persian Carpet Weaving": "Handmade Persian rug small",
+  "Wayuu Mochila Weaving": "Handmade Wayuu bag",
+  "Pashmina Weaving": "Handmade pashmina shawl",
+  "Silver Filigree Jewelry": "Handmade silver filigree jewelry",
+  "Mud & Terracotta Pottery": "Handmade terracotta pottery",
 };
 
 function buildEtsySearchQuery(craftCategory: string): string {
@@ -117,11 +127,11 @@ async function gatherExaContext(
 
   try {
     const response = await exa.search(query, {
-      numResults: 6,
+      numResults: 5,
       contents: {
         highlights: {
           query: `${craft} ${region} heritage history culture tradition`,
-          maxCharacters: 12000,
+          maxCharacters: 8000,
         },
       },
     });
@@ -157,6 +167,7 @@ export const generateArtisanPassport = action({
 
     const craft = artisan.craft;
     const region = (artisan.region ?? "").trim() || "Kashmir";
+    const displayName = artisan.name.trim() || "Artisan";
 
     let exaData = "";
     if (exaKey?.trim()) {
@@ -164,18 +175,31 @@ export const generateArtisanPassport = action({
       exaData = await gatherExaContext(exa, craft, region);
     } else {
       exaData =
-        "No Exa API key configured; synthesize only from the artisan transcript.";
+        "No Exa API key configured; use PROFILE and ARTISAN STORY only, plus general craft knowledge.";
     }
 
-    const transcript = artisan.voiceTranscript || "(No transcript provided.)";
+    const rawStory = (artisan.voiceTranscript ?? "").trim();
+    const profileBlock = [
+      `Name: ${displayName}`,
+      `Craft: ${craft}`,
+      `Region: ${region}`,
+    ].join("\n");
 
-    const prompt = `You are preserving intangible cultural heritage. Based on this historical data [EXA DATA] and this artisan's story [TRANSCRIPT], write a dignified 60-word bio and 5 skill tags for their Skill Passport. Return JSON: { bio: string, tags: string[] }
+    const storyBlock =
+      rawStory.length > 0
+        ? rawStory
+        : "(No personal narrative was stored; write a respectful, specific bio using PROFILE, EXA DATA, and craft knowledge. Address the artisan by name.)";
+
+    const prompt = `You are preserving intangible cultural heritage. Combine [PROFILE] (ground truth), [EXA DATA] (historical/cultural context), and [ARTISAN STORY] (their own words, possibly brief). Write a dignified ~60-word bio that uses their name and craft, and exactly 5 concise skill tags. Tags should match their practice, not generic filler. Return JSON: { bio: string, tags: string[] }
+
+[PROFILE]
+${profileBlock}
 
 [EXA DATA]
 ${exaData}
 
-[TRANSCRIPT]
-${transcript}`;
+[ARTISAN STORY]
+${storyBlock}`;
 
     const genAI = new GoogleGenerativeAI(geminiKey.trim());
     const text = await runGeminiCompletion(genAI, prompt, true);
