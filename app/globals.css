@@ -97,6 +97,25 @@ body {
   font-family: var(--font-sans);
 }
 
+@keyframes discover-ticker {
+  0% {
+    transform: translateX(0);
+  }
+  100% {
+    transform: translateX(-50%);
+  }
+}
+
+.discover-ticker-track {
+  animation: discover-ticker 38s linear infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .discover-ticker-track {
+    animation: none;
+  }
+}
+
 @media print {
   .no-print {
     display: none !important;

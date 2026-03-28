@@ -20,7 +20,9 @@ export default defineSchema({
   attestations: defineTable({
     artisanId: v.id("artisans"),
     createdAt: v.number(),
-  }).index("by_artisan", ["artisanId"]),
+  })
+    .index("by_artisan", ["artisanId"])
+    .index("by_createdAt", ["createdAt"]),
 
   peerAttestations: defineTable({
     artisanId: v.id("artisans"),

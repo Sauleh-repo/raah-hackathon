@@ -35,12 +35,18 @@ export default function Home() {
             only three, hard-refresh this page (Ctrl+Shift+R).
           </p>
           <div className="flex h-px w-24 bg-heritage-gold" aria-hidden />
-          <div>
+          <div className="flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-center">
             <a
               href="#onboarding"
               className="inline-flex min-h-14 min-w-[12rem] items-center justify-center rounded-xl bg-heritage-walnut px-8 text-base font-medium text-heritage-cream transition-opacity hover:opacity-90 focus:outline-none focus-visible:ring-2 focus-visible:ring-heritage-gold focus-visible:ring-offset-2 focus-visible:ring-offset-heritage-cream"
             >
               Begin your path
+            </a>
+            <a
+              href="/discover"
+              className="inline-flex min-h-14 min-w-[12rem] items-center justify-center rounded-xl border-2 border-heritage-gold bg-transparent px-8 text-base font-semibold text-heritage-walnut transition-colors hover:bg-heritage-gold/10 focus:outline-none focus-visible:ring-2 focus-visible:ring-heritage-gold focus-visible:ring-offset-2 focus-visible:ring-offset-heritage-cream"
+            >
+              Explore Global Masters
             </a>
           </div>
         </div>

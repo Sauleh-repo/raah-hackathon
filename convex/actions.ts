@@ -4,14 +4,21 @@ import { GoogleGenerativeAI } from "@google/generative-ai";
 import { ApifyClient } from "apify-client";
 import Exa from "exa-js";
 import { v } from "convex/values";
-import { internal } from "./_generated/api";
+import { api, internal } from "./_generated/api";
 import { action } from "./_generated/server";
 
-const GEMINI_MODEL_FALLBACKS = [
-  "gemini-3.0-pro",
-  "gemini-2.5-pro",
-  "gemini-2.0-flash",
-] as const;
+const discoverNodeFilter = v.optional(
+  v.union(
+    v.literal("all"),
+    v.literal("kashmir"),
+    v.literal("oaxaca"),
+    v.literal("kigali"),
+    v.literal("lagos"),
+  ),
+);
+
+/** Omit gemini-2.0-flash by default — free tier often hits 429 / zero quota; set GEMINI_MODEL if you need it. */
+const GEMINI_MODEL_FALLBACKS = ["gemini-3.0-pro", "gemini-2.5-pro"] as const;
 
 function parsePassportJson(
   text: string,
@@ -46,6 +53,20 @@ function parsePassportJson(
   };
 }
 
+function parseGeminiRetryDelayMs(message: string): number | null {
+  const m = message.match(/retry in ([\d.]+)s/i);
+  if (!m) return null;
+  const sec = parseFloat(m[1]);
+  if (!Number.isFinite(sec)) return null;
+  // Cap wait so Convex actions don’t sit forever; API suggests ~20–60s for 429.
+  return Math.min(55_000, Math.ceil(sec * 1000) + 800);
+}
+
+function isGemini429(e: unknown): boolean {
+  const msg = e instanceof Error ? e.message : String(e);
+  return /429|Too Many Requests|RESOURCE_EXHAUSTED/i.test(msg);
+}
+
 async function runGeminiCompletion(
   genAI: GoogleGenerativeAI,
   prompt: string,
@@ -61,17 +82,27 @@ async function runGeminiCompletion(
   });
   let lastErr: unknown;
   for (const modelName of uniqueModels) {
-    try {
-      const model = genAI.getGenerativeModel({
-        model: modelName,
-        generationConfig: jsonMode
-          ? { responseMimeType: "application/json" }
-          : undefined,
-      });
-      const result = await model.generateContent(prompt);
-      return result.response.text().trim();
-    } catch (e) {
-      lastErr = e;
+    for (let attempt = 0; attempt < 2; attempt++) {
+      try {
+        const model = genAI.getGenerativeModel({
+          model: modelName,
+          generationConfig: jsonMode
+            ? { responseMimeType: "application/json" }
+            : undefined,
+        });
+        const result = await model.generateContent(prompt);
+        return result.response.text().trim();
+      } catch (e) {
+        lastErr = e;
+        const msg = e instanceof Error ? e.message : String(e);
+        const waitMs =
+          attempt === 0 && isGemini429(e) ? parseGeminiRetryDelayMs(msg) : null;
+        if (waitMs !== null) {
+          await new Promise((r) => setTimeout(r, waitMs));
+          continue;
+        }
+        break;
+      }
     }
   }
   throw new Error(
@@ -310,5 +341,150 @@ No extra text, no markdown, no surrounding quotes.`;
       listingCount: values.length,
       advice,
     };
+  },
+});
+
+function parseRankedArtisanIds(text: string): string[] {
+  let t = text.trim();
+  if (t.startsWith("```")) {
+    t = t.replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/i, "");
+  }
+  const parsed = JSON.parse(t) as { rankedIds?: unknown };
+  const arr = Array.isArray(parsed.rankedIds) ? parsed.rankedIds : [];
+  return arr.map((x) => String(x).trim()).filter(Boolean);
+}
+
+type DiscoverCard = {
+  _id: string;
+  name: string;
+  craft: string;
+  region: string;
+  bio: string | null;
+  tags: string[];
+  attestation_count: number;
+};
+
+function keywordDiscoveryScore(q: string, c: DiscoverCard): number {
+  const hay = [c.name, c.craft, c.region, c.bio ?? "", ...c.tags]
+    .join(" ")
+    .toLowerCase();
+  const qLower = q.toLowerCase().trim();
+  let score = 0;
+  if (hay.includes(qLower) && qLower.length > 2) score += 6;
+  const words = qLower.split(/\s+/).filter((w) => w.length > 1);
+  for (const w of words) {
+    if (hay.includes(w)) score += 2;
+  }
+  return score;
+}
+
+/**
+ * Seeker discovery: Exa neural web context + Gemini ranks artisans in our DB by semantic fit.
+ * Falls back to keyword scoring when EXA / Gemini are unavailable.
+ */
+export const searchArtisans = action({
+  args: {
+    query: v.string(),
+    node: discoverNodeFilter,
+  },
+  handler: async (ctx, { query: rawQuery, node }) => {
+    const nodeKey = node ?? "all";
+    const candidates = (await ctx.runQuery(api.artisans.listDiscoverArtisans, {
+      node: nodeKey,
+      limit: 80,
+    })) as DiscoverCard[];
+
+    const trim = rawQuery.trim();
+    if (!trim) {
+      return {
+        artisans: candidates.slice(0, 28),
+        mode: "browse" as const,
+      };
+    }
+
+    const geminiKey = process.env.GEMINI_API_KEY?.trim();
+    const exaKey = process.env.EXA_API_KEY?.trim();
+
+    let exaContext = "";
+    if (exaKey) {
+      try {
+        const exa = new Exa(exaKey);
+        const res = await exa.search(
+          `${trim} traditional craft artisan heritage handmade skills`,
+          {
+            type: "neural",
+            numResults: 6,
+            contents: { text: { maxCharacters: 3200 } },
+          },
+        );
+        const parts: string[] = [];
+        for (const r of res.results ?? []) {
+          if ("text" in r && typeof r.text === "string") {
+            parts.push(r.text.slice(0, 1100));
+          }
+        }
+        exaContext = parts.join("\n---\n").slice(0, 7500);
+      } catch {
+        exaContext = "";
+      }
+    }
+
+    if (geminiKey && exaContext.length > 20) {
+      try {
+        const genAI = new GoogleGenerativeAI(geminiKey);
+        const payload = candidates.map((c) => ({
+          id: c._id,
+          name: c.name,
+          craft: c.craft,
+          region: c.region,
+          bio: (c.bio ?? "").slice(0, 420),
+          tags: c.tags,
+        }));
+        const prompt = `You are Raah's heritage discovery engine. A seeker searched: "${trim}".
+
+NEURAL WEB CONTEXT (semantic hints from the open web — not our database):
+${exaContext}
+
+CANDIDATE ARTISANS (verified Raah community, JSON):
+${JSON.stringify(payload)}
+
+Return ONLY valid JSON: { "rankedIds": string[] }.
+- Each string must be an exact "id" from candidates.
+- Order from strongest semantic / cultural fit to the seeker's intent (not keyword overlap).
+- At most 24 ids. Omit poor fits.
+- If none fit, return { "rankedIds": [] }.`;
+
+        const text = await runGeminiCompletion(genAI, prompt, true);
+        const rankedIds = parseRankedArtisanIds(text);
+        const byId = new Map(candidates.map((c) => [c._id, c]));
+        const ordered: DiscoverCard[] = [];
+        const seen = new Set<string>();
+        for (const id of rankedIds) {
+          const row = byId.get(id);
+          if (row && !seen.has(id)) {
+            ordered.push(row);
+            seen.add(id);
+          }
+        }
+        for (const c of candidates) {
+          if (!seen.has(c._id)) ordered.push(c);
+        }
+        return {
+          artisans: ordered.slice(0, 32),
+          mode: "semantic" as const,
+        };
+      } catch {
+        /* keyword fallback */
+      }
+    }
+
+    const scored = candidates.map((c) => ({
+      c,
+      s: keywordDiscoveryScore(trim, c),
+    }));
+    scored.sort((a, b) => b.s - a.s);
+    const withHits = scored.filter((x) => x.s > 0).map((x) => x.c);
+    const artisans = (withHits.length > 0 ? withHits : candidates).slice(0, 32);
+    return { artisans, mode: "keyword" as const };
   },
 });

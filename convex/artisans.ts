@@ -1,3 +1,4 @@
+import type { Doc } from "./_generated/dataModel";
 import {
   internalMutation,
   internalQuery,
@@ -5,6 +6,45 @@ import {
   query,
 } from "./_generated/server";
 import { v } from "convex/values";
+
+const discoverNodeValue = v.union(
+  v.literal("all"),
+  v.literal("kashmir"),
+  v.literal("oaxaca"),
+  v.literal("kigali"),
+  v.literal("lagos"),
+);
+
+type DiscoverNodeId = "all" | "kashmir" | "oaxaca" | "kigali" | "lagos";
+
+function regionMatchesNode(region: string, node: DiscoverNodeId): boolean {
+  if (node === "all") return true;
+  const r = region.toLowerCase();
+  switch (node) {
+    case "kashmir":
+      return /kashmir|srinagar|jammu|leh|anantnag|pahalgam/.test(r);
+    case "oaxaca":
+      return /oaxaca|oaxaca\s+de\s+juárez|juarez/.test(r);
+    case "kigali":
+      return /kigali|rwanda/.test(r);
+    case "lagos":
+      return /lagos|nigeria|abuja/.test(r);
+    default:
+      return true;
+  }
+}
+
+function toDiscoverCard(doc: Doc<"artisans">) {
+  return {
+    _id: doc._id,
+    name: doc.name,
+    craft: doc.craft,
+    region: doc.region ?? "",
+    bio: doc.bio ?? null,
+    tags: doc.tags ?? [],
+    attestation_count: doc.attestation_count ?? 0,
+  };
+}
 
 export const createArtisan = mutation({
   args: {
@@ -146,5 +186,89 @@ export const getMarketSignalByCategory = query({
       averagePriceUsd: latest.averagePriceUsd,
       listingCount: latest.listingCount,
     };
+  },
+});
+
+export const listDiscoverArtisans = query({
+  args: {
+    node: v.optional(discoverNodeValue),
+    limit: v.optional(v.number()),
+  },
+  handler: async (ctx, { node = "all", limit }) => {
+    const cap = Math.min(100, Math.max(1, limit ?? 36));
+    const all = await ctx.db.query("artisans").collect();
+    const filtered = all.filter((a) =>
+      regionMatchesNode(a.region ?? "", node as DiscoverNodeId),
+    );
+    filtered.sort((a, b) => {
+      const w = (x: Doc<"artisans">) =>
+        (x.bio ? 2 : 0) + Math.min(5, (x.attestation_count ?? 0) * 0.15);
+      return w(b) - w(a);
+    });
+    return filtered.slice(0, cap).map(toDiscoverCard);
+  },
+});
+
+export const getMarketPulse = query({
+  args: { limit: v.optional(v.number()) },
+  handler: async (ctx, { limit }) => {
+    const cap = Math.min(20, Math.max(1, limit ?? 10));
+    const rows = await ctx.db.query("market_signals").collect();
+    rows.sort((a, b) => b.updatedAt - a.updatedAt);
+    return rows.slice(0, cap).map((r) => ({
+      craftCategory: r.craftCategory,
+      averagePriceUsd: r.averagePriceUsd ?? null,
+      listingCount: r.listingCount ?? null,
+      updatedAt: r.updatedAt,
+    }));
+  },
+});
+
+export const trendingCraftsOnRaah = query({
+  args: { limit: v.optional(v.number()) },
+  handler: async (ctx, { limit }) => {
+    const cap = Math.min(16, Math.max(1, limit ?? 8));
+    const artisans = await ctx.db.query("artisans").collect();
+    const counts = new Map<string, number>();
+    for (const a of artisans) {
+      counts.set(a.craft, (counts.get(a.craft) ?? 0) + 1);
+    }
+    return [...counts.entries()]
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, cap)
+      .map(([craft, artisanCount]) => ({ craft, artisanCount }));
+  },
+});
+
+export const recentAttestationFeed = query({
+  args: { limit: v.optional(v.number()) },
+  handler: async (ctx, { limit }) => {
+    const cap = Math.min(40, Math.max(1, limit ?? 22));
+    const rows = await ctx.db
+      .query("attestations")
+      .withIndex("by_createdAt", (q) => q.gte("createdAt", 0))
+      .order("desc")
+      .take(cap);
+    const out: {
+      _id: (typeof rows)[number]["_id"];
+      createdAt: number;
+      artisanId: (typeof rows)[number]["artisanId"];
+      artisanName: string;
+      craft: string;
+      region: string;
+    }[] = [];
+    for (const row of rows) {
+      const a = await ctx.db.get(row.artisanId);
+      if (!a) continue;
+      out.push({
+        _id: row._id,
+        createdAt: row.createdAt,
+        artisanId: row.artisanId,
+        artisanName: a.name,
+        craft: a.craft,
+        region: a.region ?? "",
+      });
+    }
+    return out;
   },
 });
