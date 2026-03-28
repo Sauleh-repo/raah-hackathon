@@ -8,11 +8,11 @@ Kashmiri artisans produce world-class handicrafts — Pashmina, Khatamband, Sozn
 
 The platform has three components:
 
-**Skill Passport** — Artisans answer guided, low-literacy-friendly questions about their craft and lineage. GPT-4o synthesizes their answers into a buyer-facing heritage biography with a shareable QR code. Other verified artisans attest to each other's skills via a real-time peer verification system backed by Convex.
+**Skill Passport:**  Artisans answer guided, low-literacy-friendly questions about their craft and lineage. GPT-4o synthesizes their answers into a buyer-facing heritage biography with a shareable QR code. Other verified artisans attest to each other's skills via a real-time peer verification system backed by Convex.
 
-**Price Signal** — Apify scrapes live pricing data from Etsy and global marketplaces by craft category. Artisans see what similar work is selling for internationally before they negotiate.
+**Price Signal:**  Apify scrapes live pricing data from Etsy and global marketplaces by craft category. Artisans see what similar work is selling for internationally before they negotiate.
 
-**Semantic Discovery** — Buyers search by meaning, not keywords. Exa's neural search connects a buyer looking for "authentic 14th-century floral motifs" directly to the right artisan, bypassing the middlemen who typically capture 90% of the value.
+**Semantic Discovery:**  Buyers search by meaning, not keywords. Exa's neural search connects a buyer looking for "authentic 14th-century floral motifs" directly to the right artisan, bypassing the middlemen who typically capture 90% of the value.
 
 ## Tech Stack
 
@@ -82,6 +82,3 @@ npm start
 
 [raah-hackathon.vercel.app](https://raah-hackathon.vercel.app)
 
-## License
-
-MIT
