@@ -10,6 +10,8 @@
 
 import type * as actions from "../actions.js";
 import type * as artisans from "../artisans.js";
+import type * as seed from "../seed.js";
+import type * as seedTrigger from "../seedTrigger.js";
 
 import type {
   ApiFromModules,
@@ -20,6 +22,8 @@ import type {
 declare const fullApi: ApiFromModules<{
   actions: typeof actions;
   artisans: typeof artisans;
+  seed: typeof seed;
+  seedTrigger: typeof seedTrigger;
 }>;
 
 /**

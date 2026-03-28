@@ -35,6 +35,7 @@ function regionMatchesNode(region: string, node: DiscoverNodeId): boolean {
 }
 
 function toDiscoverCard(doc: Doc<"artisans">) {
+  const phone = doc.phone?.trim() ?? "";
   return {
     _id: doc._id,
     name: doc.name,
@@ -43,7 +44,13 @@ function toDiscoverCard(doc: Doc<"artisans">) {
     bio: doc.bio ?? null,
     tags: doc.tags ?? [],
     attestation_count: doc.attestation_count ?? 0,
+    phone: phone.length > 0 ? phone : null,
   };
+}
+
+/** Stable key for Raah Identity (trim + lowercase). */
+function normalizeVoterIdentity(raw: string): string {
+  return raw.trim().toLowerCase();
 }
 
 export const createArtisan = mutation({
@@ -52,14 +59,17 @@ export const createArtisan = mutation({
     craft: v.string(),
     voiceTranscript: v.string(),
     region: v.string(),
+    phone: v.string(),
   },
   handler: async (ctx, args) => {
+    const phone = args.phone.trim();
     const id = await ctx.db.insert("artisans", {
       name: args.name.trim(),
       craft: args.craft.trim(),
       voiceTranscript: args.voiceTranscript.trim(),
       region: args.region.trim(),
       attestation_count: 0,
+      ...(phone ? { phone } : {}),
     });
     return id;
   },
@@ -145,16 +155,35 @@ export const getArtisanForPassport = query({
       tags: doc.tags ?? [],
       attestation_count: doc.attestation_count ?? 0,
       sinceYear: new Date(doc._creationTime).getFullYear(),
+      phone: doc.phone?.trim() ?? "",
     };
   },
 });
 
 export const addAttestation = mutation({
-  args: { artisanId: v.id("artisans") },
-  handler: async (ctx, { artisanId }) => {
+  args: {
+    artisanId: v.id("artisans"),
+    voterIdentity: v.string(),
+  },
+  handler: async (ctx, { artisanId, voterIdentity }) => {
     const artisan = await ctx.db.get(artisanId);
     if (!artisan) {
       throw new Error("Artisan not found.");
+    }
+    const key = normalizeVoterIdentity(voterIdentity);
+    if (!key) {
+      throw new Error("Identity is required to verify.");
+    }
+    const existing = await ctx.db
+      .query("attestations")
+      .withIndex("by_artisan_and_voterIdentity", (q) =>
+        q.eq("artisanId", artisanId).eq("voterIdentity", key),
+      )
+      .first();
+    if (existing) {
+      throw new Error(
+        "This identity has already verified this artisan on Raah.",
+      );
     }
     const now = Date.now();
     const next = (artisan.attestation_count ?? 0) + 1;
@@ -162,6 +191,7 @@ export const addAttestation = mutation({
     await ctx.db.insert("attestations", {
       artisanId,
       createdAt: now,
+      voterIdentity: key,
     });
     return { attestation_count: next };
   },

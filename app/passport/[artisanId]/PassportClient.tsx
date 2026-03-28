@@ -34,6 +34,32 @@ function ChartInsightIcon({ className }: { className?: string }) {
   );
 }
 
+const RAAH_IDENTITY_KEY = "raah_identity";
+
+function digitsOnlyPhone(phone: string): string {
+  return phone.replace(/\D/g, "");
+}
+
+function buildWhatsAppHref(phone: string, craft: string): string | null {
+  const d = digitsOnlyPhone(phone);
+  if (d.length < 8) return null;
+  const text = `Hello, I saw your Raah Skill Passport and I'm interested in your ${craft} work.`;
+  return `https://wa.me/${d}?text=${encodeURIComponent(text)}`;
+}
+
+function WhatsAppGlyph({ className }: { className?: string }) {
+  return (
+    <svg
+      className={className}
+      viewBox="0 0 24 24"
+      fill="currentColor"
+      aria-hidden
+    >
+      <path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m-5.421 7.403h-.004a9.87 9.87 0 01-5.031-1.378l-.361-.214-3.741.982.998-3.648-.235-.374a9.86 9.86 0 01-1.51-5.26c.001-5.45 4.436-9.884 9.888-9.884 2.64 0 5.122 1.03 6.988 2.898a9.825 9.825 0 012.893 6.994c-.003 5.45-4.435 9.884-9.885 9.884m8.413-18.297A11.815 11.815 0 0012.05 0C5.495 0 .16 5.335.157 11.892c0 2.096.547 4.142 1.588 5.945L.057 24l6.305-1.654a11.882 11.882 0 005.683 1.448h.005c6.554 0 11.89-5.335 11.893-11.893a11.821 11.821 0 00-3.48-8.413z" />
+    </svg>
+  );
+}
+
 const HERITAGE_PATTERN_STYLE: CSSProperties = {
   backgroundImage: `
     repeating-linear-gradient(
@@ -70,6 +96,11 @@ export function PassportClient({ artisanId }: { artisanId: string }) {
 
   const [pageUrl, setPageUrl] = useState("");
   const [verifyBusy, setVerifyBusy] = useState(false);
+  const [identityModalOpen, setIdentityModalOpen] = useState(false);
+  const [identityInput, setIdentityInput] = useState("");
+  const [storedIdentity, setStoredIdentity] = useState<string | null>(null);
+  const [verifySucceeded, setVerifySucceeded] = useState(false);
+  const [verifyError, setVerifyError] = useState<string | null>(null);
   const [bioBusy, setBioBusy] = useState(false);
   const [bioError, setBioError] = useState<string | null>(null);
 
@@ -79,6 +110,20 @@ export function PassportClient({ artisanId }: { artisanId: string }) {
     );
   }, []);
 
+  useEffect(() => {
+    try {
+      const v = localStorage.getItem(RAAH_IDENTITY_KEY)?.trim();
+      setStoredIdentity(v && v.length > 0 ? v : null);
+    } catch {
+      setStoredIdentity(null);
+    }
+  }, []);
+
+  useEffect(() => {
+    setVerifySucceeded(false);
+    setVerifyError(null);
+  }, [id]);
+
   const initial = useMemo(() => {
     const c = data?.name?.trim()?.charAt(0);
     return c ? c.toUpperCase() : "—";
@@ -86,14 +131,64 @@ export function PassportClient({ artisanId }: { artisanId: string }) {
 
   const locationLine = data?.region?.trim() || "Srinagar, Kashmir";
 
-  const handleVerify = useCallback(async () => {
-    setVerifyBusy(true);
+  const whatsappHref = useMemo(() => {
+    if (!data?.phone) return null;
+    return buildWhatsAppHref(data.phone, data.craft);
+  }, [data?.phone, data?.craft]);
+
+  const runAttestWithIdentity = useCallback(
+    async (voterIdentity: string) => {
+      setVerifyBusy(true);
+      setVerifyError(null);
+      try {
+        await addAttestation({ artisanId: id, voterIdentity });
+        setVerifySucceeded(true);
+      } catch (e) {
+        setVerifySucceeded(false);
+        setVerifyError(
+          e instanceof Error ? e.message : "Verification could not be recorded.",
+        );
+      } finally {
+        setVerifyBusy(false);
+      }
+    },
+    [addAttestation, id],
+  );
+
+  const handleVerifyClick = useCallback(() => {
+    setVerifyError(null);
+    let existing: string | null = null;
     try {
-      await addAttestation({ artisanId: id });
-    } finally {
-      setVerifyBusy(false);
+      existing = localStorage.getItem(RAAH_IDENTITY_KEY)?.trim() ?? "";
+      if (!existing) existing = storedIdentity?.trim() ?? "";
+    } catch {
+      existing = storedIdentity?.trim() ?? "";
     }
-  }, [addAttestation, id]);
+    if (existing && existing.length > 0) {
+      void runAttestWithIdentity(existing);
+      return;
+    }
+    setIdentityInput("");
+    setIdentityModalOpen(true);
+  }, [runAttestWithIdentity, storedIdentity]);
+
+  const handleIdentityModalSubmit = useCallback(() => {
+    if (verifyBusy) return;
+    const raw = identityInput.trim();
+    if (!raw) {
+      setVerifyError("Enter a phone number or email to join the Raah network.");
+      return;
+    }
+    try {
+      localStorage.setItem(RAAH_IDENTITY_KEY, raw);
+    } catch {
+      setVerifyError("Could not save your identity in this browser.");
+      return;
+    }
+    setStoredIdentity(raw);
+    setIdentityModalOpen(false);
+    void runAttestWithIdentity(raw);
+  }, [identityInput, runAttestWithIdentity, verifyBusy]);
 
   const handlePrint = useCallback(() => {
     window.print();
@@ -309,7 +404,7 @@ export function PassportClient({ artisanId }: { artisanId: string }) {
             </section>
 
             <section className="mt-6 rounded-xl border border-[#2D1B08]/10 bg-white/35 px-4 py-4">
-              <div className="flex items-center justify-between gap-3">
+              <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                 <div>
                   <p className="text-[0.65rem] font-semibold uppercase tracking-[0.2em] text-[#2D1B08]/45">
                     Peer attestations
@@ -318,16 +413,69 @@ export function PassportClient({ artisanId }: { artisanId: string }) {
                     {data.attestation_count}
                   </p>
                 </div>
-                <button
-                  type="button"
-                  onClick={() => void handleVerify()}
-                  disabled={verifyBusy}
-                  className="no-print min-h-11 shrink-0 rounded-xl border border-[#2D1B08] bg-[#2D1B08] px-4 py-2.5 text-center text-xs font-semibold leading-tight text-[#F5F5F0] transition-opacity hover:opacity-90 disabled:opacity-50 sm:max-w-[9.5rem] sm:text-sm"
-                >
-                  {verifyBusy ? "Recording…" : "Verify this Artisan's Skill"}
-                </button>
+                <div className="no-print flex min-w-0 flex-col items-stretch gap-2 sm:max-w-[11rem] sm:items-end">
+                  <button
+                    type="button"
+                    onClick={() => void handleVerifyClick()}
+                    disabled={verifyBusy}
+                    className="min-h-11 w-full shrink-0 rounded-xl border border-[#2D1B08] bg-[#2D1B08] px-4 py-2.5 text-center text-xs font-semibold leading-tight text-[#F5F5F0] transition-opacity hover:opacity-90 disabled:opacity-50 sm:text-sm"
+                  >
+                    {verifyBusy ? "Recording…" : "Verify this Artisan's Skill"}
+                  </button>
+                  {verifySucceeded ? (
+                    <p className="flex items-center justify-end gap-1.5 text-right text-[0.7rem] font-semibold text-[#D4AF37]">
+                      <svg
+                        className="h-4 w-4 shrink-0 text-[#D4AF37]"
+                        viewBox="0 0 20 20"
+                        fill="none"
+                        stroke="currentColor"
+                        strokeWidth="2"
+                        aria-hidden
+                      >
+                        <path
+                          d="M5 10.5 8.5 14 15 7"
+                          strokeLinecap="round"
+                          strokeLinejoin="round"
+                        />
+                      </svg>
+                      Identity verified — welcome to the Raah network
+                    </p>
+                  ) : null}
+                  {verifyError ? (
+                    <p className="text-right text-[0.65rem] leading-snug text-red-800/90">
+                      {verifyError}
+                    </p>
+                  ) : null}
+                </div>
               </div>
             </section>
+
+            {whatsappHref ? (
+              <section className="no-print mt-6 rounded-xl border-2 border-[#D4AF37] bg-gradient-to-b from-[#F5F5F0] to-white/40 px-4 py-5 shadow-[inset_0_1px_0_rgba(255,255,255,0.65)]">
+                <p className="text-[0.65rem] font-semibold uppercase tracking-[0.22em] text-[#2D1B08]/45">
+                  Contact bridge
+                </p>
+                <p className="mt-2 text-sm leading-relaxed text-[#2D1B08]/75">
+                  Reach this maker directly on WhatsApp — no middlemen, same
+                  trust layer as the passport.
+                </p>
+                <a
+                  href={whatsappHref}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="mt-4 flex w-full items-center justify-center gap-2 rounded-xl border-2 border-[#D4AF37] bg-[#2D1B08] px-4 py-3.5 text-sm font-semibold text-[#F5F5F0] shadow-[0_6px_20px_-8px_rgba(212,175,55,0.55)] transition-opacity hover:opacity-90"
+                >
+                  <WhatsAppGlyph className="h-5 w-5 text-[#25D366]" />
+                  Contact on WhatsApp
+                </a>
+                <p className="mt-3 text-center">
+                  <span className="inline-flex items-center rounded-full border border-[#D4AF37]/40 bg-[#D4AF37]/10 px-3 py-1 text-[0.65rem] font-medium uppercase tracking-wide text-[#2D1B08]/70">
+                    Response time:{" "}
+                    <span className="tabular-nums">Usually {"<"} 24h</span>
+                  </span>
+                </p>
+              </section>
+            ) : null}
 
             <div className="mt-6 h-px w-full bg-gradient-to-r from-transparent via-[#D4AF37]/35 to-transparent" />
 
@@ -374,6 +522,89 @@ export function PassportClient({ artisanId }: { artisanId: string }) {
           </div>
         </article>
       </div>
+
+      {identityModalOpen ? (
+        <div
+          className="no-print fixed inset-0 z-[100] flex items-center justify-center p-4"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="raah-identity-title"
+        >
+          <button
+            type="button"
+            className="absolute inset-0 bg-[#2D1B08]/50 backdrop-blur-[2px]"
+            aria-label="Close dialog"
+            disabled={verifyBusy}
+            onClick={() => setIdentityModalOpen(false)}
+          />
+          <div
+            className="relative z-10 w-full max-w-md overflow-hidden rounded-2xl border-2 border-[#D4AF37] bg-[#F5F5F0] p-6 shadow-[0_24px_60px_-20px_rgba(45,27,8,0.35)]"
+            style={HERITAGE_PATTERN_STYLE}
+          >
+            <div className="relative">
+              <p className="text-[0.6rem] font-semibold uppercase tracking-[0.28em] text-[#D4AF37]">
+                Raah Identity Protocol
+              </p>
+              <h2
+                id="raah-identity-title"
+                className="mt-2 font-serif text-2xl leading-tight text-[#2D1B08]"
+              >
+                Join the Raah network
+              </h2>
+              <p className="mt-3 text-sm leading-relaxed text-[#2D1B08]/75">
+                To verify this legacy, please identify yourself. Your signal
+                joins a global movement of peer-trusted heritage.
+              </p>
+              <label className="mt-5 block">
+                <span className="text-xs font-semibold uppercase tracking-[0.18em] text-[#2D1B08]/50">
+                  Phone or email
+                </span>
+                <input
+                  type="text"
+                  value={identityInput}
+                  onChange={(e) => setIdentityInput(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") {
+                      e.preventDefault();
+                      void handleIdentityModalSubmit();
+                    }
+                  }}
+                  className="mt-2 w-full rounded-xl border border-[#2D1B08]/12 bg-white/90 px-4 py-3 text-sm text-[#2D1B08] placeholder:text-[#2D1B08]/35 focus:border-[#D4AF37] focus:outline-none focus:ring-2 focus:ring-[#D4AF37]/35"
+                  placeholder="+91 … or name@email.com"
+                  autoComplete="username"
+                  disabled={verifyBusy}
+                />
+              </label>
+              {verifyError ? (
+                <p className="mt-3 text-xs leading-relaxed text-red-800/90">
+                  {verifyError}
+                </p>
+              ) : null}
+              <div className="mt-6 flex flex-col-reverse gap-3 sm:flex-row sm:justify-end">
+                <button
+                  type="button"
+                  disabled={verifyBusy}
+                  onClick={() => {
+                    setVerifyError(null);
+                    setIdentityModalOpen(false);
+                  }}
+                  className="min-h-11 rounded-xl border border-[#2D1B08]/18 bg-transparent px-5 text-sm font-medium text-[#2D1B08]/80 transition-colors hover:bg-[#2D1B08]/5 disabled:opacity-50"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  disabled={verifyBusy}
+                  onClick={() => void handleIdentityModalSubmit()}
+                  className="min-h-11 rounded-xl border-2 border-[#D4AF37] bg-[#2D1B08] px-5 text-sm font-semibold text-[#F5F5F0] shadow-sm transition-opacity hover:opacity-90 disabled:opacity-50"
+                >
+                  {verifyBusy ? "Joining…" : "Verify & join"}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      ) : null}
     </div>
   );
 }

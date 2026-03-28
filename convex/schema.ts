@@ -14,15 +14,21 @@ export default defineSchema({
     bio: v.optional(v.string()),
     tags: v.optional(v.array(v.string())),
     attestation_count: v.optional(v.number()),
+    /** WhatsApp / contact bridge (digits and +; shown on passport & discovery). */
+    phone: v.optional(v.string()),
   }).index("by_craft", ["craft"]),
 
   /** Lightweight peer attestation events (count lives on artisans). */
   attestations: defineTable({
     artisanId: v.id("artisans"),
     createdAt: v.number(),
+    /** Normalized phone or email — Raah Identity Protocol (one verify per artisan per identity). */
+    voterIdentity: v.optional(v.string()),
   })
     .index("by_artisan", ["artisanId"])
-    .index("by_createdAt", ["createdAt"]),
+    .index("by_createdAt", ["createdAt"])
+    // One row per (artisanId, voterIdentity); uniqueness enforced in addAttestation.
+    .index("by_artisan_and_voterIdentity", ["artisanId", "voterIdentity"]),
 
   peerAttestations: defineTable({
     artisanId: v.id("artisans"),

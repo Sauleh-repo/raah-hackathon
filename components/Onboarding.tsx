@@ -15,6 +15,26 @@ import {
 /** Voice alone is often empty or noisy; typed text is required for a reliable passport. */
 const MIN_STORY_LENGTH = 25;
 
+/** Minimum digits (after stripping non-digits) for a plausible WhatsApp number. */
+const MIN_PHONE_DIGITS = 8;
+
+function PhoneFieldIcon({ className }: { className?: string }) {
+  return (
+    <svg
+      className={className}
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.75"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden
+    >
+      <path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72 12.84 12.84 0 0 0 .7 2.81 2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45 12.84 12.84 0 0 0 2.81.7A2 2 0 0 1 22 16.92z" />
+    </svg>
+  );
+}
+
 type Craft = CraftOption | "";
 
 function getSpeechRecognition(): SpeechRecognitionConstructor | null {
@@ -59,6 +79,7 @@ export function Onboarding() {
   const [region, setRegion] = useState("");
   const [craft, setCraft] = useState<Craft>("");
   const [transcript, setTranscript] = useState("");
+  const [phone, setPhone] = useState("");
   const [listening, setListening] = useState(false);
   const [speechLang, setSpeechLang] =
     useState<(typeof SPEECH_LANG_OPTIONS)[number]["value"]>("en-IN");
@@ -157,6 +178,9 @@ export function Onboarding() {
   const canAdvanceStep0 = name.trim().length > 0 && region.trim().length > 0;
   const canAdvanceStep1 = craft !== "";
   const storyReady = transcript.trim().length >= MIN_STORY_LENGTH;
+  const phoneDigits = phone.replace(/\D/g, "").length;
+  const canAdvanceStep3 =
+    phone.trim().length > 0 && phoneDigits >= MIN_PHONE_DIGITS;
 
   const handleFinish = async () => {
     stopRecognition();
@@ -170,6 +194,7 @@ export function Onboarding() {
           craft: craft.trim(),
           voiceTranscript: transcript.trim(),
           region: region.trim(),
+          phone: phone.trim(),
         });
         setPendingArtisanId(id);
       } else {
@@ -277,10 +302,10 @@ export function Onboarding() {
           role="progressbar"
           aria-valuenow={step + 1}
           aria-valuemin={1}
-          aria-valuemax={3}
-          aria-label={`Step ${step + 1} of 3`}
+          aria-valuemax={4}
+          aria-label={`Step ${step + 1} of 4`}
         >
-          {[0, 1, 2].map((i) => (
+          {[0, 1, 2, 3].map((i) => (
             <span
               key={i}
               className={`h-1 flex-1 rounded-full transition-colors ${
@@ -509,8 +534,71 @@ export function Onboarding() {
               </button>
               <button
                 type="button"
-                onClick={() => void handleFinish()}
                 disabled={submissionPhase === "saving" || !storyReady}
+                onClick={() => setStep(3)}
+                className="w-full min-h-14 rounded-xl bg-heritage-walnut text-heritage-cream font-semibold disabled:opacity-60"
+              >
+                Continue
+              </button>
+            </div>
+          </div>
+        )}
+
+        {step === 3 && (
+          <div className="space-y-6">
+            <h2 className="font-serif text-2xl sm:text-3xl text-heritage-walnut leading-tight">
+              How can seekers reach you?
+            </h2>
+            <p className="text-sm leading-relaxed text-heritage-walnut/70">
+              Add a WhatsApp number with country code so collectors and partners
+              can message you directly from your Skill Passport.
+            </p>
+            <label className="block">
+              <span className="text-sm font-medium text-heritage-walnut/80 mb-2 flex items-center gap-2">
+                <PhoneFieldIcon className="h-4 w-4 text-heritage-gold shrink-0" />
+                WhatsApp number
+              </span>
+              <input
+                type="tel"
+                inputMode="tel"
+                autoComplete="tel"
+                value={phone}
+                onChange={(e) => setPhone(e.target.value)}
+                className="w-full min-h-12 rounded-xl border border-heritage-walnut/20 bg-heritage-cream/80 pl-4 pr-4 text-base text-heritage-walnut placeholder:text-heritage-walnut/40 focus:outline-none focus:ring-2 focus:ring-heritage-gold/60 focus:border-heritage-gold"
+                placeholder="e.g. +52 951 123 4567"
+              />
+              <p
+                className={`mt-2 text-sm ${canAdvanceStep3 ? "text-heritage-walnut/55" : "text-heritage-walnut/75"}`}
+              >
+                {canAdvanceStep3
+                  ? "Seekers will see a WhatsApp button on your passport."
+                  : `Include country code — at least ${MIN_PHONE_DIGITS} digits total.`}
+              </p>
+            </label>
+            {submissionError && (
+              <p className="text-sm text-heritage-walnut bg-red-50 border border-red-200/80 rounded-xl px-4 py-3">
+                {submissionError}
+              </p>
+            )}
+            <div className="flex flex-col-reverse sm:flex-row gap-3">
+              <button
+                type="button"
+                onClick={() => {
+                  setStep(2);
+                  setSubmissionPhase("idle");
+                  setSubmissionError(null);
+                }}
+                disabled={submissionPhase === "saving"}
+                className="w-full min-h-14 rounded-xl border border-heritage-walnut/25 text-heritage-walnut font-medium disabled:opacity-40"
+              >
+                Back
+              </button>
+              <button
+                type="button"
+                onClick={() => void handleFinish()}
+                disabled={
+                  submissionPhase === "saving" || !storyReady || !canAdvanceStep3
+                }
                 className="w-full min-h-14 rounded-xl bg-heritage-gold text-heritage-walnut font-semibold disabled:opacity-60"
               >
                 {submissionPhase === "saving" ? "Saving…" : "Finish"}
