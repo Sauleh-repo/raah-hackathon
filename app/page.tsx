@@ -1,5 +1,6 @@
 import { GlobalExpansion } from "@/components/GlobalExpansion";
 import { Onboarding } from "@/components/Onboarding";
+import { CRAFT_CATALOG_COUNT } from "@/lib/crafts";
 
 export default function Home() {
   return (
@@ -24,6 +25,14 @@ export default function Home() {
             Kashmir Node Zero welcomes artisans who weave, carve, and shape
             heritage. Begin a few gentle steps to introduce your craft to the
             world.
+          </p>
+          <p className="max-w-xl text-sm leading-relaxed text-heritage-walnut/55 sm:text-base">
+            On-screen check: the craft picker lists{" "}
+            <span className="font-medium text-heritage-walnut/75 tabular-nums">
+              {CRAFT_CATALOG_COUNT}
+            </span>{" "}
+            heritage categories from across the Global South. If you still see
+            only three, hard-refresh this page (Ctrl+Shift+R).
           </p>
           <div className="flex h-px w-24 bg-heritage-gold" aria-hidden />
           <div>
