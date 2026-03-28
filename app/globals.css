@@ -1,0 +1,115 @@
+@import "tailwindcss";
+
+:root {
+  --background: #f5f5f0;
+  --foreground: #2d1b08;
+  --accent: #d4af37;
+}
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-accent: var(--accent);
+  --color-heritage-cream: #f5f5f0;
+  --color-heritage-walnut: #2d1b08;
+  --color-heritage-gold: #d4af37;
+  --font-sans: var(--font-inter), ui-sans-serif, system-ui, sans-serif;
+  --font-serif: var(--font-playfair), ui-serif, Georgia, "Times New Roman", serif;
+}
+
+@keyframes pulse-record {
+  0%,
+  100% {
+    box-shadow: 0 0 0 0 color-mix(in srgb, var(--accent) 45%, transparent);
+    transform: scale(1);
+  }
+  50% {
+    box-shadow: 0 0 0 1.25rem color-mix(in srgb, var(--accent) 0%, transparent);
+    transform: scale(1.03);
+  }
+}
+
+.animate-pulse-record {
+  animation: pulse-record 2.2s ease-in-out infinite;
+}
+
+@keyframes expansion-pulse-gold {
+  0% {
+    transform: scale(0.55);
+    opacity: 0.92;
+  }
+  65% {
+    transform: scale(2.1);
+    opacity: 0;
+  }
+  100% {
+    transform: scale(0.55);
+    opacity: 0;
+  }
+}
+
+@keyframes expansion-pulse-dim {
+  0% {
+    transform: scale(0.48);
+    opacity: 0.28;
+  }
+  72% {
+    transform: scale(1.72);
+    opacity: 0;
+  }
+  100% {
+    transform: scale(0.48);
+    opacity: 0;
+  }
+}
+
+@keyframes expansion-pulse-ring {
+  0% {
+    transform: scale(0.88);
+    opacity: 0.5;
+  }
+  100% {
+    transform: scale(1.38);
+    opacity: 0;
+  }
+}
+
+.expansion-svg-pulse {
+  transform-box: fill-box;
+  transform-origin: center;
+}
+
+.animate-expansion-pulse-gold {
+  animation: expansion-pulse-gold 2.35s ease-out infinite;
+}
+
+.animate-expansion-pulse-dim {
+  animation: expansion-pulse-dim 3.1s ease-out infinite;
+}
+
+.animate-expansion-pulse-ring {
+  animation: expansion-pulse-ring 2.35s ease-out infinite;
+}
+
+body {
+  background: var(--background);
+  color: var(--foreground);
+  font-family: var(--font-sans);
+}
+
+@media print {
+  .no-print {
+    display: none !important;
+  }
+
+  body {
+    background: #f5f5f0 !important;
+    print-color-adjust: exact;
+    -webkit-print-color-adjust: exact;
+  }
+
+  .passport-print-shell {
+    padding: 0 !important;
+    min-height: auto !important;
+  }
+}
