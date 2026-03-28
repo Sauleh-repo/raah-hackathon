@@ -163,16 +163,19 @@ export const getArtisanForPassport = query({
 export const addAttestation = mutation({
   args: {
     artisanId: v.id("artisans"),
-    voterIdentity: v.string(),
+    /** Omitted when older clients serialize `undefined` (JSON drops the key). */
+    voterIdentity: v.optional(v.string()),
   },
   handler: async (ctx, { artisanId, voterIdentity }) => {
     const artisan = await ctx.db.get(artisanId);
     if (!artisan) {
       throw new Error("Artisan not found.");
     }
-    const key = normalizeVoterIdentity(voterIdentity);
+    const key = normalizeVoterIdentity(voterIdentity ?? "");
     if (!key) {
-      throw new Error("Identity is required to verify.");
+      throw new Error(
+        "Verification needs your Raah identity (phone or email). Open the verify dialog on the passport, or refresh the page and try again.",
+      );
     }
     const existing = await ctx.db
       .query("attestations")

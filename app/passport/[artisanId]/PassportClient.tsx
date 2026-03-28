@@ -137,10 +137,19 @@ export function PassportClient({ artisanId }: { artisanId: string }) {
   }, [data?.phone, data?.craft]);
 
   const runAttestWithIdentity = useCallback(
-    async (voterIdentity: string) => {
+    async (rawIdentity: string | undefined) => {
+      const voterIdentity =
+        typeof rawIdentity === "string" ? rawIdentity.trim() : "";
+      if (!voterIdentity) {
+        setVerifyError(
+          "Add your phone or email to verify — tap Verify and complete the Raah identity step.",
+        );
+        return;
+      }
       setVerifyBusy(true);
       setVerifyError(null);
       try {
+        // Always pass a concrete string so the Convex client never omits the field (undefined is stripped from JSON).
         await addAttestation({ artisanId: id, voterIdentity });
         setVerifySucceeded(true);
       } catch (e) {
