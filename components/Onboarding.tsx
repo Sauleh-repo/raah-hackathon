@@ -6,23 +6,50 @@ import { useAction, useMutation } from "convex/react";
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useRef, useState } from "react";
 
-const CRAFT_OPTIONS = [
-  "Kani Weaving",
-  "Wood Carving",
-  "Papier Mâché",
-] as const;
+import {
+  CRAFT_CATALOG_COUNT,
+  CRAFT_OPTIONS,
+  type CraftOption,
+} from "@/lib/crafts";
 
-type Craft = (typeof CRAFT_OPTIONS)[number] | "";
+/** Voice alone is often empty or noisy; typed text is required for a reliable passport. */
+const MIN_STORY_LENGTH = 25;
+
+type Craft = CraftOption | "";
 
 function getSpeechRecognition(): SpeechRecognitionConstructor | null {
   if (typeof window === "undefined") return null;
   return window.webkitSpeechRecognition ?? window.SpeechRecognition ?? null;
 }
 
+const SPEECH_LANG_OPTIONS = [
+  { value: "en-IN", label: "English (India)" },
+  { value: "en-US", label: "English (United States)" },
+  { value: "en-GB", label: "English (UK)" },
+  { value: "hi-IN", label: "Hindi (India)" },
+  { value: "ur-PK", label: "Urdu (Pakistan)" },
+] as const;
+
+function speechErrorMessage(code: string): string {
+  switch (code) {
+    case "not-allowed":
+      return "Microphone access was blocked. Use the lock or mic icon in the address bar to allow the microphone, or type your story below.";
+    case "no-speech":
+      return "No speech was detected. Move closer to the mic, reduce noise, pause briefly between sentences, or type below.";
+    case "audio-capture":
+      return "No microphone is available or it is in use. Check Windows Sound settings—or type your story below.";
+    case "network":
+      return "Voice recognition needs the internet (your browser sends audio to a speech service). Check your connection or type below.";
+    case "aborted":
+      return "Listening stopped. Try Record again or type your story.";
+    default:
+      return "Voice input had a problem. Typing in the box above is enough—Raah does not require voice.";
+  }
+}
+
 type SubmissionPhase =
   | "idle"
   | "saving"
-  | "generating"
   | "passport_error"
   | "error";
 
@@ -33,6 +60,8 @@ export function Onboarding() {
   const [craft, setCraft] = useState<Craft>("");
   const [transcript, setTranscript] = useState("");
   const [listening, setListening] = useState(false);
+  const [speechLang, setSpeechLang] =
+    useState<(typeof SPEECH_LANG_OPTIONS)[number]["value"]>("en-IN");
   const [speechError, setSpeechError] = useState<string | null>(null);
   const [submissionPhase, setSubmissionPhase] =
     useState<SubmissionPhase>("idle");
@@ -43,6 +72,9 @@ export function Onboarding() {
   const router = useRouter();
 
   const createArtisan = useMutation(api.artisans.createArtisan);
+  const updateVoiceTranscript = useMutation(
+    api.artisans.updateArtisanVoiceTranscript,
+  );
   const generatePassport = useAction(api.actions.generateArtisanPassport);
 
   const stopRecognition = useCallback(() => {
@@ -75,13 +107,16 @@ export function Onboarding() {
 
     const recognition = new Ctor();
     recognition.continuous = true;
-    recognition.interimResults = true;
-    recognition.lang = "en-IN";
+    // Final results only avoids duplicated/garbled lines while the mic is open.
+    recognition.interimResults = false;
+    recognition.lang = speechLang;
 
     recognition.onresult = (event: SpeechRecognitionEvent) => {
       let piece = "";
       for (let i = event.resultIndex; i < event.results.length; i++) {
-        piece += event.results[i]![0]!.transcript;
+        const row = event.results[i]!;
+        if (!row.isFinal) continue;
+        piece += row[0]!.transcript;
       }
       if (piece) {
         setTranscript((prev) =>
@@ -90,8 +125,10 @@ export function Onboarding() {
       }
     };
 
-    recognition.onerror = () => {
-      setSpeechError("We could not hear you clearly. Try again or type below.");
+    recognition.onerror = (event: SpeechRecognitionErrorEvent) => {
+      if (event.error !== "aborted") {
+        setSpeechError(speechErrorMessage(event.error));
+      }
       setListening(false);
       recognitionRef.current = null;
     };
@@ -110,7 +147,7 @@ export function Onboarding() {
       recognitionRef.current = null;
       setListening(false);
     }
-  }, [stopRecognition]);
+  }, [stopRecognition, speechLang]);
 
   const toggleRecord = () => {
     if (listening) stopRecognition();
@@ -119,6 +156,7 @@ export function Onboarding() {
 
   const canAdvanceStep0 = name.trim().length > 0 && region.trim().length > 0;
   const canAdvanceStep1 = craft !== "";
+  const storyReady = transcript.trim().length >= MIN_STORY_LENGTH;
 
   const handleFinish = async () => {
     stopRecognition();
@@ -134,9 +172,16 @@ export function Onboarding() {
           region: region.trim(),
         });
         setPendingArtisanId(id);
+      } else {
+        await updateVoiceTranscript({
+          artisanId: id,
+          voiceTranscript: transcript.trim(),
+        });
       }
-      setSubmissionPhase("generating");
-      await generatePassport({ artisanId: id });
+      void generatePassport({ artisanId: id }).catch(() => {
+        /* Errors surfaced on passport page via retry; avoids blocking navigation. */
+      });
+      setSubmissionPhase("idle");
       router.push(`/passport/${id}`);
     } catch (e) {
       setSubmissionError(
@@ -149,9 +194,14 @@ export function Onboarding() {
   const handleRetryPassport = async () => {
     if (!pendingArtisanId) return;
     setSubmissionError(null);
-    setSubmissionPhase("generating");
+    setSubmissionPhase("saving");
     try {
-      await generatePassport({ artisanId: pendingArtisanId });
+      await updateVoiceTranscript({
+        artisanId: pendingArtisanId,
+        voiceTranscript: transcript.trim(),
+      });
+      void generatePassport({ artisanId: pendingArtisanId }).catch(() => {});
+      setSubmissionPhase("idle");
       router.push(`/passport/${pendingArtisanId}`);
     } catch (e) {
       setSubmissionError(
@@ -160,67 +210,6 @@ export function Onboarding() {
       setSubmissionPhase("passport_error");
     }
   };
-
-  if (submissionPhase === "generating") {
-    return (
-      <div className="w-full max-w-lg mx-auto px-4 sm:px-6 py-10 sm:py-14">
-        <div
-          className="relative overflow-hidden rounded-2xl border border-heritage-walnut/10 bg-gradient-to-b from-white/90 to-heritage-cream/90 px-6 py-14 sm:px-10 sm:py-16 text-center shadow-md"
-          role="status"
-          aria-live="polite"
-          aria-busy="true"
-        >
-          <div
-            className="pointer-events-none absolute -left-24 top-1/2 h-64 w-64 -translate-y-1/2 rounded-full bg-heritage-gold/15 blur-3xl"
-            aria-hidden
-          />
-          <div
-            className="pointer-events-none absolute -right-20 bottom-0 h-48 w-48 rounded-full bg-heritage-walnut/5 blur-3xl"
-            aria-hidden
-          />
-
-          <div className="relative mx-auto mb-10 flex h-24 w-24 items-center justify-center sm:h-28 sm:w-28">
-            <div
-              className="absolute inset-0 rounded-full border-2 border-heritage-walnut/10"
-              aria-hidden
-            />
-            <div
-              className="absolute inset-0 animate-spin rounded-full border-2 border-transparent border-t-heritage-gold border-r-heritage-gold/40"
-              style={{ animationDuration: "1.15s" }}
-              aria-hidden
-            />
-            <div
-              className="absolute inset-3 rounded-full border border-heritage-gold/25"
-              aria-hidden
-            />
-            <span
-              className="font-serif text-2xl text-heritage-gold"
-              aria-hidden
-            >
-              ر
-            </span>
-          </div>
-
-          <h2 className="font-serif text-2xl leading-tight text-heritage-walnut sm:text-3xl">
-            Generating your Heritage Passport…
-          </h2>
-          <p className="mx-auto mt-4 max-w-sm text-base leading-relaxed text-heritage-walnut/70">
-            We are shaping your story into a credential you can share with
-            pride. This may take a moment.
-          </p>
-          <div className="mx-auto mt-10 flex justify-center gap-1.5" aria-hidden>
-            {[0, 1, 2].map((i) => (
-              <span
-                key={i}
-                className="h-1.5 w-1.5 rounded-full bg-heritage-gold/80 animate-pulse"
-                style={{ animationDelay: `${i * 0.2}s` }}
-              />
-            ))}
-          </div>
-        </div>
-      </div>
-    );
-  }
 
   if (submissionPhase === "passport_error") {
     return (
@@ -252,13 +241,26 @@ export function Onboarding() {
               {submissionError}
             </p>
           )}
-          <button
-            type="button"
-            onClick={() => void handleRetryPassport()}
-            className="relative mt-8 min-h-14 w-full max-w-xs rounded-xl bg-heritage-walnut px-8 text-base font-medium text-heritage-cream"
-          >
-            Retry passport
-          </button>
+          <div className="relative mt-8 flex w-full max-w-xs flex-col gap-3 sm:max-w-sm">
+            <button
+              type="button"
+              onClick={() => void handleRetryPassport()}
+              className="min-h-14 w-full rounded-xl bg-heritage-walnut px-8 text-base font-medium text-heritage-cream"
+            >
+              Retry passport
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                setSubmissionPhase("idle");
+                setSubmissionError(null);
+                setStep(2);
+              }}
+              className="min-h-14 w-full rounded-xl border border-heritage-walnut/25 bg-white/80 px-8 text-base font-medium text-heritage-walnut"
+            >
+              Edit story, then try again
+            </button>
+          </div>
         </div>
       </div>
     );
@@ -336,6 +338,14 @@ export function Onboarding() {
             <h2 className="font-serif text-2xl sm:text-3xl text-heritage-walnut leading-tight">
               What is your craft?
             </h2>
+            <p className="text-sm leading-relaxed text-heritage-walnut/65">
+              This menu should show{" "}
+              <span className="font-medium tabular-nums text-heritage-walnut/80">
+                {CRAFT_CATALOG_COUNT}
+              </span>{" "}
+              options (A–Z). That number on your screen means this build has the
+              full catalog.
+            </p>
             <label className="block">
               <span className="text-sm font-medium text-heritage-walnut/80 mb-2 block">
                 Craft category
@@ -382,33 +392,94 @@ export function Onboarding() {
               Tell your story
             </h2>
             <p className="text-heritage-walnut/75 text-base leading-relaxed">
-              Speak in your own words. We will use this to honour your work with
-              care.
+              <span className="font-medium text-heritage-walnut/85">
+                Type here first
+              </span>{" "}
+              if the room is noisy, the mic is unclear, or voice is hard to use.
+              You can still use Record below to add more. The passport only needs
+              your words in the box—not speakers or playback.
             </p>
 
-            <div className="flex flex-col items-center gap-6 py-4">
-              <button
-                type="button"
-                onClick={toggleRecord}
-                aria-pressed={listening}
-                aria-label={
-                  listening ? "Stop recording your story" : "Record your story"
-                }
-                className={`relative flex h-28 w-28 sm:h-32 sm:w-32 items-center justify-center rounded-full border-2 border-heritage-walnut/20 bg-heritage-cream text-heritage-walnut shadow-md transition-colors ${
-                  listening
-                    ? "bg-heritage-walnut text-heritage-cream border-heritage-walnut animate-pulse-record"
-                    : "hover:border-heritage-gold/50"
-                }`}
+            <label className="block">
+              <span className="text-sm font-medium text-heritage-walnut/80 mb-2 block">
+                Your story (type here — main way to enter text)
+              </span>
+              <textarea
+                value={transcript}
+                onChange={(e) => setTranscript(e.target.value)}
+                rows={6}
+                className="w-full rounded-xl border border-heritage-walnut/20 bg-white px-4 py-3 text-base text-heritage-walnut placeholder:text-heritage-walnut/40 focus:outline-none focus:ring-2 focus:ring-heritage-gold/60 focus:border-heritage-gold resize-y min-h-[10rem]"
+                placeholder="Write a few sentences: your craft, how you learned it, what you make…"
+              />
+              <p
+                className={`mt-2 text-sm ${storyReady ? "text-heritage-walnut/55" : "text-heritage-walnut/80"}`}
               >
-                <span className="font-serif text-sm sm:text-base font-medium text-center px-2 leading-snug">
-                  {listening ? "Stop" : "Record"}
-                </span>
-              </button>
-              <p className="text-sm text-heritage-walnut/60 text-center max-w-xs">
-                {listening
-                  ? "Listening… speak naturally."
-                  : "Tap Record, then share your story."}
+                {storyReady
+                  ? "Ready when you are."
+                  : `Add at least ${MIN_STORY_LENGTH} characters (about one short sentence) to generate your passport.`}
               </p>
+            </label>
+
+            <div
+              className="rounded-xl border border-heritage-walnut/15 bg-heritage-cream/50 px-4 py-5 sm:px-5"
+              aria-labelledby="optional-voice-heading"
+            >
+              <h3
+                id="optional-voice-heading"
+                className="text-sm font-semibold text-heritage-walnut/90"
+              >
+                Optional: speak your story
+              </h3>
+              <p className="mt-1 text-sm text-heritage-walnut/65">
+                Choose the language you are speaking, then tap Record. Pause
+                briefly between sentences so each line is captured clearly.
+              </p>
+              <label className="mt-4 block">
+                <span className="text-sm font-medium text-heritage-walnut/80 mb-2 block">
+                  Speech language
+                </span>
+                <select
+                  value={speechLang}
+                  onChange={(e) =>
+                    setSpeechLang(
+                      e.target.value as (typeof SPEECH_LANG_OPTIONS)[number]["value"],
+                    )
+                  }
+                  disabled={listening}
+                  className="w-full min-h-12 rounded-xl border border-heritage-walnut/20 bg-white px-4 text-base text-heritage-walnut focus:outline-none focus:ring-2 focus:ring-heritage-gold/60 focus:border-heritage-gold disabled:opacity-50"
+                >
+                  {SPEECH_LANG_OPTIONS.map((opt) => (
+                    <option key={opt.value} value={opt.value}>
+                      {opt.label}
+                    </option>
+                  ))}
+                </select>
+              </label>
+
+              <div className="mt-5 flex flex-col items-center gap-4">
+                <button
+                  type="button"
+                  onClick={toggleRecord}
+                  aria-pressed={listening}
+                  aria-label={
+                    listening ? "Stop recording your story" : "Record your story"
+                  }
+                  className={`relative flex h-28 w-28 sm:h-32 sm:w-32 items-center justify-center rounded-full border-2 border-heritage-walnut/20 bg-heritage-cream text-heritage-walnut shadow-md transition-colors ${
+                    listening
+                      ? "bg-heritage-walnut text-heritage-cream border-heritage-walnut animate-pulse-record"
+                      : "hover:border-heritage-gold/50"
+                  }`}
+                >
+                  <span className="font-serif text-sm sm:text-base font-medium text-center px-2 leading-snug">
+                    {listening ? "Stop" : "Record"}
+                  </span>
+                </button>
+                <p className="text-sm text-heritage-walnut/60 text-center max-w-sm">
+                  {listening
+                    ? "Listening… speak clearly. Words will appear in the box above after each pause."
+                    : "Tap Record, speak, then Stop when finished. Text is added above."}
+                </p>
+              </div>
             </div>
 
             {speechError && (
@@ -416,19 +487,6 @@ export function Onboarding() {
                 {speechError}
               </p>
             )}
-
-            <label className="block">
-              <span className="text-sm font-medium text-heritage-walnut/80 mb-2 block">
-                Transcript
-              </span>
-              <textarea
-                value={transcript}
-                onChange={(e) => setTranscript(e.target.value)}
-                rows={6}
-                className="w-full rounded-xl border border-heritage-walnut/20 bg-white px-4 py-3 text-base text-heritage-walnut placeholder:text-heritage-walnut/40 focus:outline-none focus:ring-2 focus:ring-heritage-gold/60 focus:border-heritage-gold resize-y min-h-[10rem]"
-                placeholder="Your words will appear here. You can also type or edit."
-              />
-            </label>
 
             {submissionError && (
               <p className="text-sm text-heritage-walnut bg-red-50 border border-red-200/80 rounded-xl px-4 py-3">
@@ -452,7 +510,7 @@ export function Onboarding() {
               <button
                 type="button"
                 onClick={() => void handleFinish()}
-                disabled={submissionPhase === "saving"}
+                disabled={submissionPhase === "saving" || !storyReady}
                 className="w-full min-h-14 rounded-xl bg-heritage-gold text-heritage-walnut font-semibold disabled:opacity-60"
               >
                 {submissionPhase === "saving" ? "Saving…" : "Finish"}
@@ -473,7 +531,11 @@ export function Onboarding() {
               style={{ animationDuration: "0.9s" }}
             />
             <p className="mt-4 text-sm font-medium text-heritage-walnut/80">
-              Saving your story…
+              Saving to Raah…
+            </p>
+            <p className="mt-1 max-w-[14rem] text-center text-xs text-heritage-walnut/55">
+              Only takes a moment. You will open your passport next; the bio
+              appears there when AI finishes.
             </p>
           </div>
         )}
