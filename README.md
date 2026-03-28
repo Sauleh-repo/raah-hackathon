@@ -1,35 +1,87 @@
-# Raah (راہ) — The Path from Maker to Market
-**Theme:** Build for the Next Billion (Kashmir Node Zero)
+# Raah
 
-## 🌍 Vision
-Raah is an AI-powered trust and discovery infrastructure for the Global South's informal craft economies. It replaces institutional trust with AI-verified skill passports, allowing artisans to bypass middlemen and connect directly to global markets.
+AI-powered trust and discovery infrastructure for craft economies in the Global South.
 
-## 🎯 The Three Pillars
-1. **Skill Passport:** A portable, peer-attested digital credential (QR-based).
-2. **Price Signal:** Global market intelligence (Apify) translated to local advice.
-3. **Trust Bridge:** Cultural context synthesis (Exa + OpenAI) for global buyers.
+## Overview
 
-## 🎨 Design Language (The "Dignity" Guideline)
-- **Reference:** Inspired by 'Hims' (Onboarding) and 'Remote' (Trust/Dashboard).
-- **Aesthetic:** High-end "Heritage-SaaS." Warm, professional, and dignified.
-- **Palette:** 
-  - Background: `#F5F5F0` (Cream Heritage)
-  - Primary: `#2D1B08` (Walnut Brown)
-  - Accent: `#D4AF37` (Antique Gold)
-- **Typography:** Serif headings (Playfair Display) + Sans-serif body (Inter).
+Kashmiri artisans produce world-class handicrafts — Pashmina, Khatamband, Sozni embroidery — yet earn a fraction of their market value because they have no digital identity, no price intelligence, and no direct channel to global buyers. Raah fixes that.
 
-## 🛠 Tech Stack & Sponsor Roles
-| Sponsor | Role |
-| :--- | :--- |
-| **Cursor** | Primary Orchestrator (Composer + AI Agent) |
-| **Convex** | Real-time DB (Peer-attestations, Reactive Live Counters) |
-| **OpenAI** | GPT-4o for Heritage Bio generation & Buyer context synthesis |
-| **Exa** | Neural search for historical craft grounding & artisan discovery |
-| **Apify** | Web scraping (Etsy/Global Markets) for price signal extraction |
-| **Mobbin** | UI pattern reference for low-literacy onboarding (Quiz-style) |
-| **v0** | Initial UI component scaffolding |
+The platform has three components:
 
-## ⚙️ System Constraints for AI
-1. **Voice-First:** Use native `window.webkitSpeechRecognition` for audio (Free browser API).
-2. **Real-time:** Every attestation and booking must use Convex `useQuery` for instant UI updates.
-3. **Accessibility:** Mobile-first, high contrast, big touch targets, minimal typing.
+**Skill Passport** — Artisans answer guided, low-literacy-friendly questions about their craft and lineage. GPT-4o synthesizes their answers into a buyer-facing heritage biography with a shareable QR code. Other verified artisans attest to each other's skills via a real-time peer verification system backed by Convex.
+
+**Price Signal** — Apify scrapes live pricing data from Etsy and global marketplaces by craft category. Artisans see what similar work is selling for internationally before they negotiate.
+
+**Semantic Discovery** — Buyers search by meaning, not keywords. Exa's neural search connects a buyer looking for "authentic 14th-century floral motifs" directly to the right artisan, bypassing the middlemen who typically capture 90% of the value.
+
+## Tech Stack
+
+| Tool | Role |
+|---|---|
+| Next.js | Frontend framework |
+| Convex | Real-time database, peer attestations |
+| OpenAI (GPT-4o) | Heritage bio generation, buyer context synthesis |
+| Exa | Neural search, historical craft verification |
+| Apify | Marketplace price scraping |
+| Vercel | Deployment |
+
+## Getting Started
+
+### Prerequisites
+
+- Node.js 18+
+- A Convex account
+- API keys for OpenAI, Exa, and Apify
+
+### Install
+
+```bash
+git clone https://github.com/Sauleh-repo/raah-hackathon
+cd raah-hackathon
+npm install
+```
+
+### Configure
+
+Copy the environment template and fill in your keys:
+
+```bash
+cp .env.example .env.local
+```
+
+Required variables:
+
+```
+CONVEX_DEPLOYMENT=
+NEXT_PUBLIC_CONVEX_URL=
+OPENAI_API_KEY=
+EXA_API_KEY=
+APIFY_API_TOKEN=
+```
+
+### Run
+
+```bash
+# Start the Convex backend
+npx convex dev
+
+# In a separate terminal, start the Next.js frontend
+npm run dev
+```
+
+Open [http://localhost:3000](http://localhost:3000).
+
+### Build for production
+
+```bash
+npm run build
+npm start
+```
+
+## Live Demo
+
+[raah-hackathon.vercel.app](https://raah-hackathon.vercel.app)
+
+## License
+
+MIT
