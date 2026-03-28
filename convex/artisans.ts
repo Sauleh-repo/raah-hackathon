@@ -46,6 +46,23 @@ export const updateArtisanBio = internalMutation({
   },
 });
 
+/** Lets onboarding refresh stored narrative before re-running passport generation. */
+export const updateArtisanVoiceTranscript = mutation({
+  args: {
+    artisanId: v.id("artisans"),
+    voiceTranscript: v.string(),
+  },
+  handler: async (ctx, { artisanId, voiceTranscript }) => {
+    const doc = await ctx.db.get(artisanId);
+    if (!doc) {
+      throw new Error("Artisan not found.");
+    }
+    await ctx.db.patch(artisanId, {
+      voiceTranscript: voiceTranscript.trim(),
+    });
+  },
+});
+
 export const updateMarketSignal = internalMutation({
   args: {
     craftCategory: v.string(),
