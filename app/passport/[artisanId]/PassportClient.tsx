@@ -2,7 +2,7 @@
 
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
-import { useMutation, useQuery } from "convex/react";
+import { useAction, useMutation, useQuery } from "convex/react";
 import Link from "next/link";
 import { QRCodeCanvas } from "qrcode.react";
 import {
@@ -66,9 +66,12 @@ export function PassportClient({ artisanId }: { artisanId: string }) {
     data?.craft ? { craftCategory: data.craft } : "skip",
   );
   const addAttestation = useMutation(api.artisans.addAttestation);
+  const generatePassport = useAction(api.actions.generateArtisanPassport);
 
   const [pageUrl, setPageUrl] = useState("");
   const [verifyBusy, setVerifyBusy] = useState(false);
+  const [bioBusy, setBioBusy] = useState(false);
+  const [bioError, setBioError] = useState<string | null>(null);
 
   useEffect(() => {
     setPageUrl(
@@ -95,6 +98,20 @@ export function PassportClient({ artisanId }: { artisanId: string }) {
   const handlePrint = useCallback(() => {
     window.print();
   }, []);
+
+  const handleRegenerateBio = useCallback(async () => {
+    setBioError(null);
+    setBioBusy(true);
+    try {
+      await generatePassport({ artisanId: id });
+    } catch (e) {
+      setBioError(
+        e instanceof Error ? e.message : "Could not generate your heritage bio.",
+      );
+    } finally {
+      setBioBusy(false);
+    }
+  }, [generatePassport, id]);
 
   if (data === undefined) {
     return (
@@ -204,9 +221,43 @@ export function PassportClient({ artisanId }: { artisanId: string }) {
                   {data.bio}
                 </p>
               ) : (
-                <p className="mt-2 text-sm leading-relaxed text-[#2D1B08]/55">
-                  Your heritage bio is still being prepared.
-                </p>
+                <div className="mt-2 space-y-3">
+                  <div className="flex gap-3 rounded-xl border border-[#D4AF37]/25 bg-white/40 px-3 py-3 sm:px-4">
+                    <div
+                      className="mt-0.5 h-5 w-5 shrink-0 animate-spin rounded-full border-2 border-[#2D1B08]/12 border-t-[#D4AF37]"
+                      style={{ animationDuration: "0.85s" }}
+                      aria-hidden
+                    />
+                    <div className="min-w-0">
+                      <p className="text-sm font-medium leading-snug text-[#2D1B08]/85">
+                        Preparing your heritage bio…
+                      </p>
+                      <p className="mt-1 text-xs leading-relaxed text-[#2D1B08]/55">
+                        Your story is already saved. Raah is adding cultural
+                        context and AI wording—usually under a minute. This
+                        section updates automatically. If it stays empty, use
+                        the button below and confirm{" "}
+                        <span className="whitespace-nowrap font-medium">
+                          GEMINI_API_KEY
+                        </span>{" "}
+                        is set in Convex.
+                      </p>
+                    </div>
+                  </div>
+                  {bioError && (
+                    <p className="text-xs leading-relaxed text-[#2D1B08]/80 rounded-lg border border-red-200/80 bg-red-50/90 px-3 py-2">
+                      {bioError}
+                    </p>
+                  )}
+                  <button
+                    type="button"
+                    onClick={() => void handleRegenerateBio()}
+                    disabled={bioBusy}
+                    className="no-print min-h-10 w-full rounded-lg border border-[#2D1B08]/20 bg-white/60 px-4 text-xs font-semibold text-[#2D1B08] transition-colors hover:bg-white/90 disabled:opacity-50 sm:text-sm"
+                  >
+                    {bioBusy ? "Working…" : "Run biography again"}
+                  </button>
+                </div>
               )}
             </section>
 
